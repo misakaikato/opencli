@@ -135,7 +135,28 @@ function buildCandidateYaml(site: string, manifest: any, cap: any, endpoint: any
   let domain = '';
   try { domain = new URL(manifest.target_url).hostname; } catch {}
 
-  if (needsBrowser) {
+  if (cap.strategy === 'store-action' && cap.storeHint) {
+    // Store Action: navigate + wait + tap (declarative, clean)
+    pipeline.push({ navigate: manifest.target_url });
+    pipeline.push({ wait: 3 });
+    const tapStep: Record<string, any> = {
+      store: cap.storeHint.store,
+      action: cap.storeHint.action,
+      timeout: 8,
+    };
+    // Infer capture pattern from endpoint URL
+    if (endpoint?.url) {
+      try {
+        const epUrl = new URL(endpoint.url);
+        const pathParts = epUrl.pathname.split('/').filter((p: string) => p);
+        // Use last meaningful path segment as capture pattern
+        const capturePart = pathParts.filter((p: string) => !p.match(/^v\d+$/)).pop();
+        if (capturePart) tapStep.capture = capturePart;
+      } catch {}
+    }
+    if (cap.itemPath) tapStep.select = cap.itemPath;
+    pipeline.push({ tap: tapStep });
+  } else if (needsBrowser) {
     // Browser-based: navigate + evaluate (like bilibili/hot.yaml, twitter/trending.yaml)
     pipeline.push({ navigate: manifest.target_url });
     const itemPath = cap.itemPath ?? 'data.data.list';

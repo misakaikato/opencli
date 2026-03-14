@@ -228,6 +228,55 @@ const FRAMEWORK_DETECT_JS = `
   }
 `;
 
+// ── Store discovery ────────────────────────────────────────────────────────
+
+const STORE_DISCOVER_JS = `
+  () => {
+    const stores = [];
+    try {
+      const app = document.querySelector('#app');
+      if (!app?.__vue_app__) return stores;
+      const gp = app.__vue_app__.config?.globalProperties;
+
+      // Pinia stores
+      const pinia = gp?.$pinia;
+      if (pinia?._s) {
+        pinia._s.forEach((store, id) => {
+          const actions = [];
+          const stateKeys = [];
+          for (const k in store) {
+            try {
+              if (k.startsWith('$') || k.startsWith('_')) continue;
+              if (typeof store[k] === 'function') actions.push(k);
+              else stateKeys.push(k);
+            } catch {}
+          }
+          stores.push({ type: 'pinia', id, actions: actions.slice(0, 20), stateKeys: stateKeys.slice(0, 15) });
+        });
+      }
+
+      // Vuex store modules
+      const vuex = gp?.$store;
+      if (vuex?._modules?.root?._children) {
+        const children = vuex._modules.root._children;
+        for (const [modName, mod] of Object.entries(children)) {
+          const actions = Object.keys(mod._rawModule?.actions ?? {}).slice(0, 20);
+          const stateKeys = Object.keys(mod.state ?? {}).slice(0, 15);
+          stores.push({ type: 'vuex', id: modName, actions, stateKeys });
+        }
+      }
+    } catch {}
+    return stores;
+  }
+`;
+
+export interface DiscoveredStore {
+  type: 'pinia' | 'vuex';
+  id: string;
+  actions: string[];
+  stateKeys: string[];
+}
+
 // ── Main explore function ──────────────────────────────────────────────────
 
 export async function exploreUrl(
@@ -271,6 +320,15 @@ export async function exploreUrl(
       // Step 6: Detect framework
       let framework: Record<string, boolean> = {};
       try { const fw = await page.evaluate(FRAMEWORK_DETECT_JS); if (fw && typeof fw === 'object') framework = fw; } catch {}
+
+      // Step 6.5: Discover stores (Pinia / Vuex)
+      let stores: DiscoveredStore[] = [];
+      if (framework.pinia || framework.vuex) {
+        try {
+          const raw = await page.evaluate(STORE_DISCOVER_JS);
+          if (Array.isArray(raw)) stores = raw;
+        } catch {}
+      }
 
       // Step 7: Analyze endpoints
       const seen = new Map<string, AnalyzedEndpoint>();
@@ -325,13 +383,31 @@ export async function exploreUrl(
         args.push({ name: 'limit', type: 'int', required: false, default: 20 });
         if (ep.hasPaginationParam) args.push({ name: 'page', type: 'int', required: false, default: 1 });
 
+        // Link store actions to capabilities when store-action strategy is recommended
+        const epStrategy = inferStrategy(ep.authIndicators);
+        let storeHint: { store: string; action: string } | undefined;
+        if ((epStrategy === 'intercept' || ep.authIndicators.includes('signature')) && stores.length > 0) {
+          // Try to find a store/action that matches this endpoint's purpose
+          for (const s of stores) {
+            const matchingAction = s.actions.find(a =>
+              capName.split('_').some(part => a.toLowerCase().includes(part)) ||
+              a.toLowerCase().includes('fetch') || a.toLowerCase().includes('get')
+            );
+            if (matchingAction) {
+              storeHint = { store: s.id, action: matchingAction };
+              break;
+            }
+          }
+        }
+
         capabilities.push({
           name: capName, description: `${opts.site ?? detectSiteName(url)} ${capName}`,
-          strategy: inferStrategy(ep.authIndicators),
+          strategy: storeHint ? 'store-action' : epStrategy,
           confidence: Math.min(ep.score / 20, 1.0), endpoint: ep.pattern,
           itemPath: ep.responseAnalysis?.itemPath ?? null,
           recommendedColumns: cols.length ? cols : ['title', 'url'],
           recommendedArgs: args,
+          ...(storeHint ? { storeHint } : {}),
         });
       }
 
@@ -345,7 +421,7 @@ export async function exploreUrl(
 
       const result = {
         site: siteName, target_url: url, final_url: metadata.url, title: metadata.title,
-        framework, top_strategy: topStrategy,
+        framework, stores, top_strategy: topStrategy,
         endpoint_count: analyzedEndpoints.length + [...seen.values()].filter(ep => ep.score < 5).length,
         api_endpoint_count: analyzedEndpoints.length,
         capabilities, auth_indicators: [...allAuth],
@@ -354,7 +430,8 @@ export async function exploreUrl(
       // Write artifacts
       fs.writeFileSync(path.join(targetDir, 'manifest.json'), JSON.stringify({
         site: siteName, target_url: url, final_url: metadata.url, title: metadata.title,
-        framework, top_strategy: topStrategy, explored_at: new Date().toISOString(),
+        framework, stores: stores.map(s => ({ type: s.type, id: s.id, actions: s.actions })),
+        top_strategy: topStrategy, explored_at: new Date().toISOString(),
       }, null, 2));
       fs.writeFileSync(path.join(targetDir, 'endpoints.json'), JSON.stringify(analyzedEndpoints.map(ep => ({
         pattern: ep.pattern, method: ep.method, url: ep.url, status: ep.status,
@@ -366,6 +443,9 @@ export async function exploreUrl(
       fs.writeFileSync(path.join(targetDir, 'auth.json'), JSON.stringify({
         top_strategy: topStrategy, indicators: [...allAuth], framework,
       }, null, 2));
+      if (stores.length > 0) {
+        fs.writeFileSync(path.join(targetDir, 'stores.json'), JSON.stringify(stores, null, 2));
+      }
 
       return { ...result, out_dir: targetDir };
     })(), { timeout: exploreTimeout, label: `Explore ${url}` });
@@ -374,17 +454,25 @@ export async function exploreUrl(
 
 export function renderExploreSummary(result: Record<string, any>): string {
   const lines = [
-    'opencli explore: OK', `Site: ${result.site}`, `URL: ${result.target_url}`,
+    'opencli probe: OK', `Site: ${result.site}`, `URL: ${result.target_url}`,
     `Title: ${result.title || '(none)'}`, `Strategy: ${result.top_strategy}`,
     `Endpoints: ${result.endpoint_count} total, ${result.api_endpoint_count} API`,
     `Capabilities: ${result.capabilities?.length ?? 0}`,
   ];
   for (const cap of (result.capabilities ?? []).slice(0, 5)) {
-    lines.push(`  • ${cap.name} (${cap.strategy}, ${(cap.confidence * 100).toFixed(0)}%)`);
+    const storeInfo = cap.storeHint ? ` → ${cap.storeHint.store}.${cap.storeHint.action}()` : '';
+    lines.push(`  • ${cap.name} (${cap.strategy}, ${(cap.confidence * 100).toFixed(0)}%)${storeInfo}`);
   }
   const fw = result.framework ?? {};
   const fwNames = Object.entries(fw).filter(([, v]) => v).map(([k]) => k);
   if (fwNames.length) lines.push(`Framework: ${fwNames.join(', ')}`);
+  const stores: DiscoveredStore[] = result.stores ?? [];
+  if (stores.length) {
+    lines.push(`Stores: ${stores.length}`);
+    for (const s of stores.slice(0, 5)) {
+      lines.push(`  • ${s.type}/${s.id}: ${s.actions.slice(0, 5).join(', ')}${s.actions.length > 5 ? '...' : ''}`);
+    }
+  }
   lines.push(`Output: ${result.out_dir}`);
   return lines.join('\n');
 }

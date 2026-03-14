@@ -12,7 +12,8 @@
   },
   "scripts": {
     "dev": "tsx src/main.ts",
-    "build": "tsc",
+    "build": "tsc && npm run copy-yaml",
+    "copy-yaml": "find src/clis -name '*.yaml' -o -name '*.yml' | while read f; do d=\"dist/${f#src/}\"; mkdir -p \"$(dirname \"$d\")\"; cp \"$f\" \"$d\"; done",
     "start": "node dist/main.js",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",

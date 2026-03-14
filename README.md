@@ -1,83 +1,94 @@
 # OpenCLI
 
-> **Make any website your CLI.** 操控 Chrome 无风控风险，复用登录，CLI 化全部网站。
+> **Make any website your CLI.**  
+> Zero risk · Reuse Chrome login · AI-powered discovery
 
-OpenCLI 是一个 AI Native 的 CLI 工具，通过 Chrome 浏览器 + Playwright MCP Bridge 扩展，将任何网站变成命令行工具。
+OpenCLI turns any website into a command-line tool by bridging your Chrome browser through [Playwright MCP](https://github.com/nichochar/playwright-mcp). No passwords stored, no tokens leaked — it just rides your existing browser session.
 
-## ✨ 特性
+## ✨ Highlights
 
-- 🌐 **CLI 化全部网站** — 支持 Bilibili、知乎、GitHub、Twitter、V2EX、Hacker News 等
-- 🔐 **零风控风险** — 复用 Chrome 已登录状态，无需存储密码
-- 🤖 **AI Native** — AI agent 可直接探索网站并自动生成新命令
-- 📝 **声明式 YAML** — 用 YAML 定义 pipeline，无需写代码
-- 🔌 **TypeScript 扩展** — 复杂场景用 TS 编写适配器
+- 🌐 **25+ commands, 13 sites** — Bilibili, 知乎, GitHub, Twitter/X, Reddit, V2EX, 小红书, Hacker News…
+- 🔐 **Account-safe** — Reuses Chrome's logged-in state; your credentials never leave the browser
+- 🤖 **AI Agent ready** — `explore` discovers APIs, `synthesize` generates adapters, `cascade` finds the simplest auth strategy
+- 📝 **Declarative YAML** — Most adapters are ~30 lines of YAML pipeline
+- 🔌 **TypeScript escape hatch** — Complex adapters (XHR interception, GraphQL) can be written in TS
 
-## 🚀 快速开始
+## 🚀 Quick Start
 
 ```bash
-# 安装依赖
-cd ~/code/opencli && npm install
+npm install
+npx tsx src/main.ts list               # See all commands
 
-# 列出所有命令
-npx tsx src/main.ts list
+# Public APIs (no browser required)
+npx tsx src/main.ts hackernews top --limit 5
+npx tsx src/main.ts github search --keyword "rust"
+npx tsx src/main.ts v2ex hot --limit 10
 
-# 公共 API（无需浏览器）
-npx tsx src/main.ts hackernews top --limit 10
-npx tsx src/main.ts github search --keyword "typescript"
-
-# 浏览器命令（需要 Chrome + Playwright MCP Bridge 扩展）
-npx tsx src/main.ts bilibili hot --limit 10
-npx tsx src/main.ts zhihu hot --limit 10
-npx tsx src/main.ts twitter trending --limit 10
+# Browser commands (Chrome + MCP Bridge extension required)
+npx tsx src/main.ts bilibili hot --limit 5
+npx tsx src/main.ts zhihu hot --limit 5
+npx tsx src/main.ts bilibili search --keyword "AI" --limit 5
 ```
 
-## 📋 前置要求
+## 📋 Prerequisites
 
-浏览器命令需要：
-1. Chrome 浏览器正在运行
-2. 安装 [Playwright MCP Bridge](https://chromewebstore.google.com/detail/playwright-mcp-bridge/mmlmfjhmonkocbjadbfplnigmagldckm) 扩展
-3. 首次使用时点击扩展图标批准连接
+Browser commands need:
+1. **Chrome** running with the target site logged in
+2. **[Playwright MCP Bridge](https://chromewebstore.google.com/detail/playwright-mcp-bridge/mmlmfjhmonkocbjadbfplnigmagldckm)** extension installed
+3. Click the extension icon to approve connection on first use
 
-## 📦 内置命令
+> 💡 Set `PLAYWRIGHT_MCP_EXTENSION_TOKEN` to auto-approve without clicking.
 
-| 站点 | 命令 | 说明 | 模式 |
-|------|------|------|------|
-| bilibili | hot, search, me, favorite, history, feed, user-videos | 热门 / 搜索 / 个人 / 收藏 / 历史 / 动态 / 投稿 | 🔐 浏览器 |
-| zhihu | hot, search, question | 热榜 / 搜索 / 问题详情 | 🔐 浏览器 |
-| github | trending, search | Trending / 搜索 | 🔐 / 🌐 公共 |
-| twitter | trending | 热门话题 | 🔐 浏览器 |
-| v2ex | hot, latest | 热门 / 最新 | 🔐 浏览器 |
-| reddit | hot | 热门帖子 | 🔐 浏览器 |
-| hackernews | top | 热门故事 | 🌐 公共 API |
+## 📦 Built-in Commands
 
-## 🎨 输出格式
+| Site | Commands | Mode |
+|------|----------|------|
+| **bilibili** | `hot` `search` `me` `favorite` `history` `feed` `user-videos` | 🔐 Browser |
+| **zhihu** | `hot` `search` `question` | 🔐 Browser |
+| **xiaohongshu** | `search` `feed` | 🔐 Browser |
+| **twitter** | `trending` | 🔐 Browser |
+| **reddit** | `hot` | 🔐 Browser |
+| **github** | `trending` `search` | 🔐 / 🌐 |
+| **v2ex** | `hot` `latest` `topic` | 🌐 Public |
+| **hackernews** | `top` | 🌐 Public |
+
+## 🎨 Output Formats
 
 ```bash
-opencli bilibili hot -f table   # 默认表格
-opencli bilibili hot -f json    # JSON（适合管道和 AI agent）
+opencli bilibili hot -f table   # Default: rich table
+opencli bilibili hot -f json    # JSON (pipe to jq, feed to AI)
 opencli bilibili hot -f md      # Markdown
 opencli bilibili hot -f csv     # CSV
+opencli bilibili hot -v         # Verbose: show pipeline steps
 ```
 
-## 🧠 AI Agent 工作流
+## 🧠 AI Agent Workflow
 
 ```bash
-# Deep Explore: 自动发现 API 并推理 capabilities
-opencli explore <url> --site <name>
+# 1. Deep Explore — discover APIs, infer capabilities, detect framework
+opencli explore https://example.com --site mysite
 
-# 从探索成果物合成候选 CLI
-opencli synthesize <site>
+# 2. Synthesize — generate candidate YAML adapters from explore artifacts
+opencli synthesize mysite
 
-# 一键：探索 → 合成 → 注册
-opencli generate <url> --goal "hot"
+# 3. Generate — one-shot: explore → synthesize → register
+opencli generate https://example.com --goal "hot"
 
-# Strategy Cascade: 自动寻找最简可用策略
-opencli cascade <api-url>
+# 4. Strategy Cascade — auto-probe: PUBLIC → COOKIE → HEADER
+opencli cascade https://api.example.com/data
 ```
 
-## 🔧 创建新命令
+Explore outputs structured artifacts to `.opencli/explore/<site>/`:
+- `manifest.json` — site metadata, framework detection
+- `endpoints.json` — scored API endpoints with response schemas
+- `capabilities.json` — inferred capabilities with confidence scores
+- `auth.json` — authentication strategy recommendations
 
-参考 [SKILL.md](./SKILL.md) 了解 YAML 和 TypeScript 两种方式创建新的 CLI 适配器。
+## 🔧 Create New Commands
+
+See **[SKILL.md](./SKILL.md)** for the full adapter development guide:
+- **YAML pipeline** — declare navigate → evaluate → map → limit
+- **TypeScript adapter** — for XHR interception, GraphQL, pagination
 
 ## 📄 License
 

@@ -52,6 +52,9 @@ program.command('verify').description('Validate + smoke test').argument('[target
 program.command('explore').description('Explore a website').argument('<url>').option('--site <name>').option('--goal <text>').option('--wait <s>', '', '3')
   .action(async (url, opts) => { const { exploreUrl, renderExploreSummary } = await import('./explore.js'); console.log(renderExploreSummary(await exploreUrl(url, { BrowserFactory: PlaywrightMCP, site: opts.site, goal: opts.goal, waitSeconds: parseFloat(opts.wait) }))); });
 
+program.command('probe').description('Probe a website: discover APIs, stores, and recommend strategies').argument('<url>').option('--site <name>').option('--goal <text>').option('--wait <s>', '', '3')
+  .action(async (url, opts) => { const { exploreUrl, renderExploreSummary } = await import('./explore.js'); console.log(renderExploreSummary(await exploreUrl(url, { BrowserFactory: PlaywrightMCP, site: opts.site, goal: opts.goal, waitSeconds: parseFloat(opts.wait) }))); });
+
 program.command('synthesize').description('Synthesize CLIs from explore').argument('<target>').option('--top <n>', '', '3')
   .action(async (target, opts) => { const { synthesizeFromExplore, renderSynthesizeSummary } = await import('./synthesize.js'); console.log(renderSynthesizeSummary(synthesizeFromExplore(target, { top: parseInt(opts.top) }))); });
 
