@@ -1,11 +1,11 @@
 # OpenCLI
 
-> **Make any website, Electron App, or Local Tool your CLI.**  
+> **Make any website, Electron App, or Local Tool your CLI.**
 > Zero risk · Reuse Chrome login · AI-powered discovery · Universal CLI Hub
 
+> **Note**: This is a personalized fork of [jackwener/opencli](https://github.com/jackwener/opencli) with extra commands (笔趣阁, Google Scholar, etc.) and improvements.
+
 [![中文文档](https://img.shields.io/badge/docs-%E4%B8%AD%E6%96%87-0F766E?style=flat-square)](./README.zh-CN.md)
-[![npm](https://img.shields.io/npm/v/@jackwener/opencli?style=flat-square)](https://www.npmjs.com/package/@jackwener/opencli)
-[![Node.js Version](https://img.shields.io/node/v/@jackwener/opencli?style=flat-square)](https://nodejs.org)
 [![License](https://img.shields.io/npm/l/@jackwener/opencli?style=flat-square)](./LICENSE)
 
 A CLI tool that turns **any website**, **Electron app**, or **local CLI tool** into a command-line interface — Bilibili, Zhihu, 小红书, Twitter/X, Reddit, YouTube, Antigravity, `gh`, `docker`, and [many more](#built-in-commands) — powered by browser session reuse and AI-native discovery.
@@ -61,7 +61,7 @@ OpenCLI connects to your browser through a lightweight **Browser Bridge** Chrome
 You can install the extension via either method:
 
 **Method 1: Download Pre-built Release (Recommended)**
-1. Go to the GitHub [Releases page](https://github.com/jackwener/opencli/releases) and download the latest `opencli-extension.zip`.
+1. Go to the GitHub [Releases page](https://github.com/misakaikato/opencli/releases) and download the latest `opencli-extension.zip`.
 2. Unzip the file and open `chrome://extensions`, enable **Developer mode** (top-right toggle).
 3. Click **Load unpacked** and select the unzipped folder.
 
@@ -98,10 +98,10 @@ opencli zhihu hot -f yaml                 # YAML output
 ### Install from source (for developers)
 
 ```bash
-git clone git@github.com:jackwener/opencli.git
-cd opencli 
-npm install
-npm run build
+git clone git@github.com:misakaikato/opencli.git
+cd opencli
+bun install
+bun run build
 npm link      # Link binary globally
 opencli list  # Now you can use it anywhere!
 ```
@@ -132,7 +132,7 @@ Run `opencli list` for the live registry.
 | **xueqiu** | `feed` `hot-stock` `hot` `search` `stock` `watchlist` `earnings-date` `fund-holdings` `fund-snapshot` | Browser |
 | **antigravity** | `status` `send` `read` `new` `dump` `extract-code` `model` `watch` | Desktop |
 | **chatgpt** | `status` `new` `send` `read` `ask` `model` | Desktop |
-| **xiaohongshu** | `search` `notifications` `feed` `user` `download` `publish` `creator-notes` `creator-note-detail` `creator-notes-summary` `creator-profile` `creator-stats` | Browser |
+| **xiaohongshu** | `search` `notifications` `feed` `user` `download` `publish` `creator-notes` `creator-note-detail` `creator-notes-summary` `creator-profile` `creator-stats` `user-notes-detail` `user-stats` | Browser |
 | **apple-podcasts** | `search` `episodes` `top` | Public |
 | **xiaoyuzhou** | `podcast` `podcast-episodes` `episode` | Public |
 | **zhihu** | `hot` `search` `question` `download` | Browser |
@@ -146,6 +146,11 @@ Run `opencli list` for the live registry.
 | **devto** | `top` `tag` `user` | Public |
 | **dictionary** | `search` `synonyms` `examples` | Public |
 | **arxiv** | `search` `paper` | Public |
+| **bqgl** | `search` `book` `read` `download` `ranking` `category` `home` | Public |
+| **scholar** | `search` | Browser |
+| **cnki** | `search` | Browser |
+| **wanfangdata** | `search` | Browser |
+| **vip** | `search` | Browser |
 | **wikipedia** | `search` `summary` `random` `trending` | Public |
 | **hackernews** | `top` `new` `best` `ask` `show` `jobs` `search` `user` | Public |
 | **jd** | `item` | Browser |
@@ -354,7 +359,7 @@ See **[TESTING.md](./TESTING.md)** for how to run and write tests.
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=jackwener/opencli&type=Date)](https://star-history.com/#jackwener/opencli&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=misakaikato/opencli&type=Date)](https://star-history.com/#misakaikato/opencli&Date)
 
 
 
