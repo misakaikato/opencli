@@ -15,7 +15,30 @@ export interface RenderOptions {
   footerExtra?: string;
 }
 
+interface WebSearchMeta {
+  sourceCounts?: Record<string, number>;
+  sourceSummary?: string;
+}
+
+interface WebSearchResult {
+  _meta?: WebSearchMeta;
+  _data?: unknown[];
+}
+
+function isWebSearchResult(data: unknown): data is WebSearchResult {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    '_meta' in data &&
+    '_data' in data
+  );
+}
+
 function normalizeRows(data: unknown): Record<string, unknown>[] {
+  // Handle web/search results with metadata
+  if (isWebSearchResult(data) && Array.isArray(data._data)) {
+    return data._data as Record<string, unknown>[];
+  }
   return Array.isArray(data) ? data : [data as Record<string, unknown>];
 }
 
@@ -29,12 +52,29 @@ export function render(data: unknown, opts: RenderOptions = {}): void {
     console.log(data);
     return;
   }
+
+  // Handle web/search results with metadata
+  let sourceSummary: string | undefined;
+  if (isWebSearchResult(data)) {
+    sourceSummary = data._meta?.sourceSummary;
+  }
+
   switch (fmt) {
     case 'json': renderJson(data); break;
     case 'md': case 'markdown': renderMarkdown(data, opts); break;
     case 'csv': renderCsv(data, opts); break;
     case 'yaml': case 'yml': renderYaml(data); break;
-    default: renderTable(data, opts); break;
+    default: {
+      const tableOpts = { ...opts };
+      if (sourceSummary) {
+        const existingFooter = opts.footerExtra || '';
+        tableOpts.footerExtra = existingFooter
+          ? `${existingFooter} · ${sourceSummary}`
+          : sourceSummary;
+      }
+      renderTable(data, tableOpts);
+      break;
+    }
   }
 }
 
