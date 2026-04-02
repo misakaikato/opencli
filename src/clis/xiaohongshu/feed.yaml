@@ -11,7 +11,7 @@ args:
     default: 20
     description: Number of items to return
 
-columns: [title, author, likes, type, url]
+columns: [title, author, likes, type, url, author_url]
 
 pipeline:
   - navigate: https://www.xiaohongshu.com/explore
@@ -28,4 +28,5 @@ pipeline:
       author: ${{ item.note_card.user.nickname }}
       likes: ${{ item.note_card.interact_info.liked_count }}
       url: https://www.xiaohongshu.com/explore/${{ item.id }}
+      author_url: https://www.xiaohongshu.com/user/profile/${{ item.note_card.user.user_id }}
   - limit: ${{ args.limit | default(20) }}

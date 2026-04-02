@@ -19,7 +19,7 @@ cli({
     { name: 'query', required: true, positional: true, help: 'Search keyword' },
     { name: 'limit', type: 'int', default: 20, help: 'Number of results' },
   ],
-  columns: ['rank', 'title', 'author', 'likes', 'url'],
+  columns: ['rank', 'title', 'author', 'likes', 'url', 'author_url'],
   func: async (page, kwargs) => {
     const keyword = encodeURIComponent(kwargs.query);
     await page.goto(

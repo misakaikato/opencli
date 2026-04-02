@@ -68,6 +68,7 @@ cli({
     { name: 'all', type: 'bool', default: false, help: 'Return all papers (ignore limit)' },
     { name: 'date', type: 'str', required: false, help: 'Date (YYYY-MM-DD), defaults to most recent' },
     { name: 'period', type: 'str', default: 'daily', choices: ['daily', 'weekly', 'monthly'], help: 'Time period: daily, weekly, or monthly' },
+    { name: 'sort', type: 'str', default: 'upvotes', choices: ['upvotes', 'date'], help: 'Sort by: upvotes (default) or date (newest first)' },
   ],
   footerExtra: (kwargs) => {
     if (kwargs._footerDate) return kwargs._footerDate;
@@ -105,7 +106,12 @@ cli({
           kwargs._footerDate = sm === em ? `${sm} ${sd}-${ed}` : `${sm} ${sd}-${em} ${ed}`;
         }
       }
-      const sorted = [...data].sort((a, b) => (b.upvotes ?? 0) - (a.upvotes ?? 0));
+      const sorted = [...data].sort((a, b) => {
+        if (kwargs.sort === 'date') {
+          return new Date(b.publishedAt ?? 0).getTime() - new Date(a.publishedAt ?? 0).getTime();
+        }
+        return (b.upvotes ?? 0) - (a.upvotes ?? 0);
+      });
       const items = all ? sorted : sorted.slice(0, Number(kwargs.limit));
       return items.map((item, i) => ({
         rank: i + 1,
@@ -128,7 +134,13 @@ cli({
     const body = await res.json();
     if (!Array.isArray(body)) throw new CliError('FETCH_ERROR', 'Unexpected HF API response', 'Check date format or endpoint');
     const data: DailyPaper[] = body;
-    const sorted = [...data].sort((a, b) => (b.paper?.upvotes ?? 0) - (a.paper?.upvotes ?? 0));
+    const sorted = [...data].sort((a, b) => {
+      if (kwargs.sort === 'date') {
+        // Daily papers are already ordered by the API for that date, keep original order
+        return 0;
+      }
+      return (b.paper?.upvotes ?? 0) - (a.paper?.upvotes ?? 0);
+    });
     const items = all ? sorted : sorted.slice(0, Number(kwargs.limit));
     return items.map((item, i) => ({
       rank: i + 1,
