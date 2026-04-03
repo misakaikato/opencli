@@ -56,6 +56,7 @@ export interface ArticleDownloadResult {
   publish_time: string;
   status: string;
   size: string;
+  filePath?: string;
 }
 
 const DEFAULT_LABELS: Required<FrontmatterLabels> = {
@@ -268,5 +269,6 @@ export async function downloadArticle(
     publish_time: data.publishTime || '-',
     status: 'success',
     size: formatBytes(size),
+    filePath,
   }];
 }

@@ -5,6 +5,8 @@
 import chalk from 'chalk';
 import Table from 'cli-table3';
 import yaml from 'js-yaml';
+import fs from 'fs';
+import path from 'path';
 
 export interface RenderOptions {
   fmt?: string;
@@ -13,6 +15,7 @@ export interface RenderOptions {
   elapsed?: number;
   source?: string;
   footerExtra?: string;
+  outputFile?: string;
 }
 
 interface WebSearchMeta {
@@ -46,6 +49,13 @@ function resolveColumns(rows: Record<string, unknown>[], opts: RenderOptions): s
   return opts.columns ?? Object.keys(rows[0] ?? {});
 }
 
+/** Collect written lines when rendering to a buffer. */
+class OutputCollector {
+  lines: string[] = [];
+  write(line: string): void { this.lines.push(line); }
+  toString(): string { return this.lines.join('\n') + '\n'; }
+}
+
 export function render(data: unknown, opts: RenderOptions = {}): void {
   const fmt = opts.fmt ?? 'table';
   if (data === null || data === undefined) {
@@ -59,11 +69,14 @@ export function render(data: unknown, opts: RenderOptions = {}): void {
     sourceSummary = data._meta?.sourceSummary;
   }
 
+  // If outputFile is set, collect output into a buffer instead of console.log
+  const collector = opts.outputFile ? new OutputCollector() : null;
+
   switch (fmt) {
-    case 'json': renderJson(data); break;
-    case 'md': case 'markdown': renderMarkdown(data, opts); break;
-    case 'csv': renderCsv(data, opts); break;
-    case 'yaml': case 'yml': renderYaml(data); break;
+    case 'json': renderJson(data, collector); break;
+    case 'md': case 'markdown': renderMarkdown(data, opts, collector); break;
+    case 'csv': renderCsv(data, opts, collector); break;
+    case 'yaml': case 'yml': renderYaml(data, collector); break;
     default: {
       const tableOpts = { ...opts };
       if (sourceSummary) {
@@ -72,15 +85,32 @@ export function render(data: unknown, opts: RenderOptions = {}): void {
           ? `${existingFooter} · ${sourceSummary}`
           : sourceSummary;
       }
-      renderTable(data, tableOpts);
+      renderTable(data, tableOpts, collector);
       break;
     }
   }
+
+  if (collector && opts.outputFile) {
+    fs.mkdirSync(path.dirname(opts.outputFile), { recursive: true });
+    fs.writeFileSync(opts.outputFile, collector.toString());
+    const rows = normalizeRows(data);
+    const count = rows.length;
+    const hint = sourceSummary ? ` (${sourceSummary})` : '';
+    console.log(chalk.green(`✓ 已保存至 ${opts.outputFile}${count ? ` · ${count} 条结果${hint}` : ''}`));
+  }
 }
 
-function renderTable(data: unknown, opts: RenderOptions): void {
+function out(collector: OutputCollector | null, line: string): void {
+  if (collector) {
+    collector.write(line);
+  } else {
+    console.log(line);
+  }
+}
+
+function renderTable(data: unknown, opts: RenderOptions, collector: OutputCollector | null = null): void {
   const rows = normalizeRows(data);
-  if (!rows.length) { console.log(chalk.dim('(no data)')); return; }
+  if (!rows.length) { out(collector, chalk.dim('(no data)')); return; }
   const columns = resolveColumns(rows, opts);
 
   const header = columns.map(c => capitalize(c));
@@ -98,39 +128,45 @@ function renderTable(data: unknown, opts: RenderOptions): void {
     }));
   }
 
-  console.log();
-  if (opts.title) console.log(chalk.dim(`  ${opts.title}`));
-  console.log(table.toString());
+  out(collector, '');
+  if (opts.title) out(collector, chalk.dim(`  ${opts.title}`));
+  out(collector, table.toString());
   const footer: string[] = [];
   footer.push(`${rows.length} items`);
   if (opts.elapsed) footer.push(`${opts.elapsed.toFixed(1)}s`);
   if (opts.source) footer.push(opts.source);
   if (opts.footerExtra) footer.push(opts.footerExtra);
-  console.log(chalk.dim(footer.join(' · ')));
-}
+  out(collector, chalk.dim(footer.join(' · ')));
 
-function renderJson(data: unknown): void {
-  console.log(JSON.stringify(data, null, 2));
-}
-
-function renderMarkdown(data: unknown, opts: RenderOptions): void {
-  const rows = normalizeRows(data);
-  if (!rows.length) return;
-  const columns = resolveColumns(rows, opts);
-  console.log('| ' + columns.join(' | ') + ' |');
-  console.log('| ' + columns.map(() => '---').join(' | ') + ' |');
-  for (const row of rows) {
-    console.log('| ' + columns.map(c => String((row as Record<string, unknown>)[c] ?? '')).join(' | ') + ' |');
+  // Show file path if any row has it
+  const filePath = rows.find((r) => r.filePath)?.filePath as string | undefined;
+  if (filePath) {
+    out(collector, chalk.green(`→ 已保存至 ${filePath}`));
   }
 }
 
-function renderCsv(data: unknown, opts: RenderOptions): void {
+function renderJson(data: unknown, collector: OutputCollector | null = null): void {
+  out(collector, JSON.stringify(data, null, 2));
+}
+
+function renderMarkdown(data: unknown, opts: RenderOptions, collector: OutputCollector | null = null): void {
   const rows = normalizeRows(data);
   if (!rows.length) return;
   const columns = resolveColumns(rows, opts);
-  console.log(columns.join(','));
+  out(collector, '| ' + columns.join(' | ') + ' |');
+  out(collector, '| ' + columns.map(() => '---').join(' | ') + ' |');
   for (const row of rows) {
-    console.log(columns.map(c => {
+    out(collector, '| ' + columns.map(c => String((row as Record<string, unknown>)[c] ?? '')).join(' | ') + ' |');
+  }
+}
+
+function renderCsv(data: unknown, opts: RenderOptions, collector: OutputCollector | null = null): void {
+  const rows = normalizeRows(data);
+  if (!rows.length) return;
+  const columns = resolveColumns(rows, opts);
+  out(collector, columns.join(','));
+  for (const row of rows) {
+    out(collector, columns.map(c => {
       const v = String((row as Record<string, unknown>)[c] ?? '');
       return v.includes(',') || v.includes('"') || v.includes('\n') || v.includes('\r')
         ? `"${v.replace(/"/g, '""')}"` : v;
@@ -138,8 +174,8 @@ function renderCsv(data: unknown, opts: RenderOptions): void {
   }
 }
 
-function renderYaml(data: unknown): void {
-  console.log(yaml.dump(data, { sortKeys: false, lineWidth: 120, noRefs: true }));
+function renderYaml(data: unknown, collector: OutputCollector | null = null): void {
+  out(collector, yaml.dump(data, { sortKeys: false, lineWidth: 120, noRefs: true }));
 }
 
 function capitalize(s: string): string {
