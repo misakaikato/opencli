@@ -43,6 +43,7 @@ export function registerCommandToProgram(siteCmd: Command, cmd: CliCommand): voi
   }
   subCmd
     .option('-f, --format <fmt>', 'Output format: table, json, yaml, md, csv', 'table')
+    .option('-o, --out-file <path>', 'Write output to file')
     .option('-v, --verbose', 'Debug output', false);
 
   subCmd.addHelpText('after', formatRegistryHelpText(cmd));
@@ -69,6 +70,7 @@ export function registerCommandToProgram(siteCmd: Command, cmd: CliCommand): voi
     try {
       const verbose = optionsRecord.verbose === true;
       const format = typeof optionsRecord.format === 'string' ? optionsRecord.format : 'table';
+      const outputPath = typeof optionsRecord.outFile === 'string' ? optionsRecord.outFile : undefined;
       if (verbose) process.env.OPENCLI_VERBOSE = '1';
       if (cmd.deprecated) {
         const message = typeof cmd.deprecated === 'string' ? cmd.deprecated : `${fullName(cmd)} is deprecated.`;
@@ -82,14 +84,17 @@ export function registerCommandToProgram(siteCmd: Command, cmd: CliCommand): voi
         console.error(chalk.yellow('[Verbose] Warning: Command returned an empty result.'));
       }
       const resolved = getRegistry().get(fullName(cmd)) ?? cmd;
-      renderOutput(result, {
+      const renderOpts = {
         fmt: format,
         columns: resolved.columns,
         title: `${resolved.site}/${resolved.name}`,
         elapsed: (Date.now() - startTime) / 1000,
         source: fullName(resolved),
         footerExtra: resolved.footerExtra?.(kwargs),
-      });
+        outputFile: outputPath,
+      };
+
+      renderOutput(result, renderOpts);
     } catch (err) {
       if (err instanceof CliError) {
         const icon = ERROR_ICONS[err.code] ?? '⚠️';

@@ -153,7 +153,7 @@ export async function executeCommand(
     if (shouldUseBrowserSession(cmd)) {
       ensureRequiredEnv(cmd);
       const BrowserFactory = getBrowserFactory();
-      result = await browserSession(BrowserFactory, async (page) => {
+      return await browserSession(BrowserFactory, async (page) => {
         const preNavUrl = resolvePreNav(cmd);
         if (preNavUrl) {
           try {

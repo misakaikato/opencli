@@ -50,7 +50,10 @@ export class BrowserBridge {
     if (this._state === 'closed') return;
     this._state = 'closing';
     // We don't kill the daemon — it auto-exits on idle.
-    // Just clean up our reference.
+    // Close the Chrome tab so tabs don't accumulate.
+    if (this._page) {
+      await this._page.closeTab().catch(() => {});
+    }
     this._page = null;
     this._state = 'closed';
   }

@@ -11,6 +11,101 @@
 
 import { cli, Strategy } from '../../registry.js';
 import { downloadArticle } from '../../download/article-download.js';
+import { CommandExecutionError, EmptyResultError, SelectorError } from '../../errors.js';
+import { apiGet } from '../bilibili/utils.js';
+
+// ============================================================
+// Bilibili video subtitle extraction
+// ============================================================
+
+const BILIBILI_VIDEO_RE = /bilibili\.com\/video\/(BV[\w]+)|b23\.tv\/(BV[\w]+)/i;
+const BV_RE = /BV[\w]+/;
+
+async function fetchBilibiliSubtitle(page: any, url: string, output: string) {
+  const match = url.match(BV_RE);
+  if (!match) throw new CommandExecutionError('无法从 URL 中提取 BV 号');
+
+  const bvid = match[0];
+
+  // Navigate to video page to establish session and get CID
+  await page.goto(`https://www.bilibili.com/video/${bvid}/`);
+  await page.wait(2);
+
+  const cid = await page.evaluate(`(async () => {
+    const state = window.__INITIAL_STATE__ || {};
+    return state?.videoData?.cid;
+  })()`);
+
+  if (!cid) {
+    throw new SelectorError('videoData.cid', '无法提取视频 CID，请检查页面是否正常加载。');
+  }
+
+  // Get video title and author
+  const meta = await page.evaluate(`(async () => {
+    const state = window.__INITIAL_STATE__ || {};
+    return {
+      title: state?.videoData?.title || '',
+      author: state?.videoData?.owner?.name || '',
+    };
+  })()`);
+
+  // Fetch subtitle list via WBI-signed API
+  const payload = await apiGet(page, '/x/player/wbi/v2', {
+    params: { bvid, cid },
+    signed: true,
+  });
+
+  if (payload.code !== 0) {
+    throw new CommandExecutionError(`获取视频播放信息失败: ${payload.message} (${payload.code})`);
+  }
+
+  const subtitles = payload.data?.subtitle?.subtitles || [];
+  if (subtitles.length === 0) {
+    throw new EmptyResultError('bilibili subtitle', '此视频没有发现外挂或智能字幕。');
+  }
+
+  const target = subtitles[0];
+  const subUrl = target.subtitle_url.startsWith('//')
+    ? 'https:' + target.subtitle_url
+    : target.subtitle_url;
+
+  // Fetch subtitle JSON
+  const items = await page.evaluate(`
+    (async () => {
+      const res = await fetch(${JSON.stringify(subUrl)});
+      const text = await res.text();
+      try {
+        const json = JSON.parse(text);
+        if (Array.isArray(json?.body)) return json.body;
+        if (Array.isArray(json)) return json;
+        return null;
+      } catch { return null; }
+    })()
+  `);
+
+  if (!items || !Array.isArray(items)) {
+    throw new CommandExecutionError('字幕解析失败');
+  }
+
+  // Build HTML from subtitle entries
+  const contentHtml = items
+    .map((item: any) => `<p>${item.content}</p>`)
+    .join('\n');
+
+  return downloadArticle(
+    {
+      title: meta.title || bvid,
+      author: meta.author,
+      sourceUrl: url,
+      contentHtml,
+    },
+    { output, downloadImages: false },
+  );
+}
+
+// ============================================================
+// Main command
+// ============================================================
 
 cli({
   site: 'web',
@@ -27,11 +122,15 @@ cli({
   columns: ['title', 'author', 'publish_time', 'status', 'size'],
   func: async (page, kwargs) => {
     const url = kwargs.url;
-    const waitSeconds = kwargs.wait ?? 3;
+
+    // --- Bilibili video branch: extract subtitles instead of page content ---
+    if (BILIBILI_VIDEO_RE.test(url)) {
+      return fetchBilibiliSubtitle(page, url, kwargs.output);
+    }
 
     // Navigate to the target URL
     await page.goto(url);
-    await page.wait(waitSeconds);
+    await page.wait(kwargs.wait ?? 3);
 
     // Extract article content using browser-side heuristics
     const data = await page.evaluate(`
