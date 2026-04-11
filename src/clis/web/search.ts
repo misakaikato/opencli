@@ -7,6 +7,7 @@
  *   opencli web search "AI"                      # Search across all platforms
  *   opencli web search "AI" --limit 50          # Limit total results
  *   opencli web search "AI" --concurrency 5     # Run 5 searches in parallel (default: 3)
+ *   opencli web search "AI" --sources xiaohongshu,zhihu,google  # Search specific sites only
  *   opencli web search "AI" -f json             # JSON output
  */
 
@@ -86,6 +87,7 @@ cli({
     { name: 'query', positional: true, required: true, help: 'Search keyword' },
     { name: 'limit', type: 'int', default: 10, help: 'Max results per source (default 10)' },
     { name: 'concurrency', type: 'int', default: 3, help: 'Number of concurrent searches (default 3)' },
+    { name: 'sources', type: 'string', default: '', help: 'Comma-separated list of sites to search (e.g. xiaohongshu,zhihu,google). Use "opencli web search list" to see all available sources.' },
   ],
   columns: ['source', 'title', 'url'],
   footerExtra: () => undefined, // Will be overridden dynamically
@@ -93,6 +95,8 @@ cli({
     const query = kwargs.query as string;
     const limitPerSource = Math.max(1, Math.min(Number(kwargs.limit) || 10, 50));
     const concurrency = Math.max(1, Math.min(Number(kwargs.concurrency) || 3, 20));
+    const sourcesArg = String(kwargs.sources || '').trim();
+    const requestedSources = sourcesArg ? sourcesArg.split(',').map((s: string) => s.trim().toLowerCase()).filter(Boolean) : [];
 
     // Find all search commands
     const registry = getRegistry();
@@ -104,11 +108,20 @@ cli({
         if (key === 'web/search' || key === 'web/search-list') continue;
         // Skip blocked sources to avoid wasting resources on unwanted tabs
         if (BLOCKED_SOURCES.includes(cmd.site)) continue;
+        // If --sources is specified, only include requested sites
+        if (requestedSources.length > 0 && !requestedSources.includes(cmd.site.toLowerCase())) continue;
         searchCommands.push({ site: cmd.site, name: cmd.name, url: cmd.domain });
       }
     }
 
     if (searchCommands.length === 0) {
+      if (requestedSources.length > 0) {
+        const unknown = requestedSources.filter((s: string) => !registry.has(`${s}/search`));
+        const msg = unknown.length > 0
+          ? `Unknown source(s): ${unknown.join(', ')}. Use "opencli web search list" to see all available sources.`
+          : `None of the requested sources (${requestedSources.join(', ')}) have a search command available.`;
+        throw new CliError('UNKNOWN_SOURCE', msg, 'Check available sources with "opencli web search list"');
+      }
       throw new CliError('NO_SEARCH_COMMANDS', 'No search commands found', 'This should not happen');
     }
 

@@ -95,6 +95,8 @@ opencli hackernews top --limit 5          # 公共 API，无需浏览器
 opencli bilibili hot --limit 5            # 浏览器命令
 opencli zhihu hot -f json                 # JSON 输出
 opencli zhihu hot -f yaml                 # YAML 输出
+opencli web search "AI"                   # 跨平台搜索
+opencli web search "AI" --sources xiaohongshu,zhihu,google  # 指定平台搜索
 ```
 
 ### 从源码安装（面向开发者）

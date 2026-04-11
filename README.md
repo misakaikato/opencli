@@ -93,6 +93,8 @@ opencli hackernews top --limit 5          # Public API, no browser
 opencli bilibili hot --limit 5            # Browser command
 opencli zhihu hot -f json                 # JSON output
 opencli zhihu hot -f yaml                 # YAML output
+opencli web search "AI"                   # Search across all platforms
+opencli web search "AI" --sources xiaohongshu,zhihu,google  # Search specific sites
 ```
 
 ### Install from source (for developers)
