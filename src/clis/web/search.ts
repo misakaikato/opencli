@@ -14,6 +14,7 @@
 import { cli, getRegistry, fullName } from '../../registry.js';
 import { executeCommand } from '../../execution.js';
 import { CliError } from '../../errors.js';
+import fs from 'fs';
 
 interface SearchResult {
   source: string;
@@ -24,6 +25,13 @@ interface SearchResult {
 
 // Sites blocked from web search results
 const BLOCKED_SOURCES = ['smzdm', 'ctrip', 'pixiv', 'boss', 'discord-app', 'instagram', 'linkedin', 'notion'];
+
+// Module-level registry for use in subtitle enrichment
+let _registry: ReturnType<typeof getRegistry> | null = null;
+function getRegistrySingleton() {
+  _registry ??= getRegistry();
+  return _registry;
+}
 
 /**
  * Concurrency-controlled search runner with progress callbacks.
@@ -72,6 +80,41 @@ function progressLine(msg: string): void {
   process.stderr.write(`\r${msg}${' '.repeat(Math.max(0, 80 - msg.length))}`);
 }
 
+function bvFromUrl(url: string): string | null {
+  const m = url.match(/bilibili\.com\/video\/([A-Za-z0-9]+)/);
+  return m ? m[1] : null;
+}
+
+async function enrichBilibiliSubtitles(results: SearchResult[]): Promise<void> {
+  const seen = new Set<string>();
+  const reg = getRegistrySingleton();
+  for (const r of results) {
+    const bv = bvFromUrl(r.url);
+    if (!bv || seen.has(bv)) continue;
+    seen.add(bv);
+    try {
+      const cmd = reg.get('bilibili/subtitle');
+      if (!cmd) continue;
+      const subtitles = await Promise.race([
+        executeCommand(cmd, { bvid: bv, limit: 10 }, false),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 15000))
+      ]) as Array<{ index: number; from: string; to: string; content: string }>;
+      if (Array.isArray(subtitles) && subtitles.length > 0) {
+        r._bilibiliSubtitles = subtitles.slice(0, 10);
+        r.title = `[字幕] ${r.title}`;
+      }
+    } catch { /* skip failed subtitles */ }
+  }
+}
+
+function incrementalWrite(path: string, data: unknown): void {
+  try {
+    const dir = path.substring(0, path.lastIndexOf('/'));
+    if (dir) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path, JSON.stringify(data, null, 2));
+  } catch { /* ignore */ }
+}
+
 /** Clear the progress line */
 function clearProgress(): void {
   process.stderr.write('\r' + ' '.repeat(80) + '\r');
@@ -97,6 +140,7 @@ cli({
     const concurrency = Math.max(1, Math.min(Number(kwargs.concurrency) || 3, 20));
     const sourcesArg = String(kwargs.sources || '').trim();
     const requestedSources = sourcesArg ? sourcesArg.split(',').map((s: string) => s.trim().toLowerCase()).filter(Boolean) : [];
+    const outputFile = typeof kwargs.outFile === 'string' ? kwargs.outFile : null;
 
     // Find all search commands
     const registry = getRegistry();
@@ -199,71 +243,88 @@ cli({
       } else {
         progressLine(`[${completed}/${searchCommands.length}] ${site} returned ${count} results`);
       }
+      // Incremental write: flush current results after each source completes
+      if (outputFile && results.length > 0) {
+        const partial = buildReturnValue(results, errors, searchCommands, completed, query);
+        incrementalWrite(outputFile, partial);
+      }
     };
     const onError = (_site: string) => {
       completed++;
       progressLine(`[${completed}/${searchCommands.length}] ${_site} failed`);
+      if (outputFile && results.length > 0) {
+        const partial = buildReturnValue(results, errors, searchCommands, completed, query);
+        incrementalWrite(outputFile, partial);
+      }
     };
 
     await runWithConcurrency(tasks, concurrency, onStart, onDone, onError);
     clearProgress();
-    const seen = new Set<string>();
-    const deduped: SearchResult[] = [];
-    for (const r of results) {
-      // Use normalized URL as dedup key
-      const normalizedUrl = r.url.split('?')[0].toLowerCase();
-      if (!seen.has(normalizedUrl)) {
-        seen.add(normalizedUrl);
-        deduped.push(r);
-      }
-    }
 
-    // Filter out blocked sources
-    const filtered = deduped.filter((r) => !BLOCKED_SOURCES.includes(r.source));
+    // Enrich bilibili results with subtitles (after all searches done, before final output)
+    await enrichBilibiliSubtitles(results);
 
-    // Sort by source then title
-    filtered.sort((a, b) => {
-      const sourceCmp = a.source.localeCompare(b.source);
-      if (sourceCmp !== 0) return sourceCmp;
-      return a.title.localeCompare(b.title);
-    });
-
-    // Calculate per-source counts
-    const sourceCounts: Record<string, number> = {};
-    for (const r of filtered) {
-      sourceCounts[r.source] = (sourceCounts[r.source] || 0) + 1;
-    }
-
-    // Log any errors at verbose level
-    if (errors.length > 0 && process.env.OPENCLI_VERBOSE) {
-      console.error(`\n[web/search] ${errors.length} sources failed:`);
-      for (const e of errors) {
-        console.error(`  - ${e.site}: ${e.error}`);
-      }
-    }
-
-    if (filtered.length === 0) {
-      throw new CliError(
-        'NO_RESULTS',
-        `No search results for: ${query}`,
-        `Tried ${searchCommands.length} sources, all returned empty or failed`
-      );
-    }
-
-    // Build source summary string
-    const sourceSummary = Object.entries(sourceCounts)
-      .sort((a, b) => b[1] - a[1])
-      .map(([source, count]) => `${source}:${count}`)
-      .join(', ');
-
-    // Return results with _sourceCounts metadata for JSON output
-    return {
-      _meta: { sourceCounts, sourceSummary },
-      _data: filtered.map((r) => ({
-        source: r.source,
-        title: r.title,
-        url: r.url,
-      })),
-    };
+    return buildReturnValue(results, errors, searchCommands, searchCommands.length, query);
   },
 });
+
+function buildReturnValue(
+  results: SearchResult[],
+  errors: Array<{ site: string; error: string }>,
+  searchCommands: Array<{ site: string; name: string; url?: string }>,
+  total: number,
+  query: string,
+) {
+  const seen = new Set<string>();
+  const deduped: SearchResult[] = [];
+  for (const r of results) {
+    const normalizedUrl = r.url.split('?')[0].toLowerCase();
+    if (!seen.has(normalizedUrl)) {
+      seen.add(normalizedUrl);
+      deduped.push(r);
+    }
+  }
+
+  const filtered = deduped.filter((r) => !BLOCKED_SOURCES.includes(r.source));
+
+  filtered.sort((a, b) => {
+    const sourceCmp = a.source.localeCompare(b.source);
+    if (sourceCmp !== 0) return sourceCmp;
+    return a.title.localeCompare(b.title);
+  });
+
+  const sourceCounts: Record<string, number> = {};
+  for (const r of filtered) {
+    sourceCounts[r.source] = (sourceCounts[r.source] || 0) + 1;
+  }
+
+  if (errors.length > 0 && process.env.OPENCLI_VERBOSE) {
+    console.error(`\n[web/search] ${errors.length} sources failed:`);
+    for (const e of errors) {
+      console.error(`  - ${e.site}: ${e.error}`);
+    }
+  }
+
+  if (filtered.length === 0) {
+    throw new CliError(
+      'NO_RESULTS',
+      `No search results for: ${query}`,
+      `Tried ${searchCommands.length} sources, all returned empty or failed`
+    );
+  }
+
+  const sourceSummary = Object.entries(sourceCounts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([source, count]) => `${source}:${count}`)
+    .join(', ');
+
+  return {
+    _meta: { sourceCounts, sourceSummary },
+    _data: filtered.map((r) => ({
+      source: r.source,
+      title: r.title,
+      url: r.url,
+      _bilibiliSubtitles: r._bilibiliSubtitles,
+    })),
+  };
+}

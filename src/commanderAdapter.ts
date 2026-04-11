@@ -78,7 +78,7 @@ export function registerCommandToProgram(siteCmd: Command, cmd: CliCommand): voi
         console.error(chalk.yellow(`Deprecated: ${message}${replacement}`));
       }
 
-      const result = await executeCommand(cmd, kwargs, verbose);
+      const result = await executeCommand(cmd, { ...kwargs, outFile: outputPath }, verbose);
 
       if (verbose && (!result || (Array.isArray(result) && result.length === 0))) {
         console.error(chalk.yellow('[Verbose] Warning: Command returned an empty result.'));
